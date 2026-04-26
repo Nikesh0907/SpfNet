@@ -662,6 +662,8 @@ if __name__ == '__main__':
                         help='Last training image index (default from data_num config)')
     parser.add_argument('--total_epoch', type=int, default=None,
                         help='Total epochs per restart (default 100)')
+    parser.add_argument('--lr', type=float, default=None,
+                        help='Starting learning rate (default 1e-3; use 1e-5 when resuming)')
     # ---- eval flags ----
     parser.add_argument('--eval_only', action='store_true')
     parser.add_argument('--recompute', action='store_true')
@@ -691,6 +693,8 @@ if __name__ == '__main__':
         net.test_end    = args.test_end
     if args.total_epoch is not None:
         net.total_epoch = args.total_epoch
+    if args.lr is not None:
+        net.lr = args.lr
 
     net.stats_graph(tf.get_default_graph())
 
