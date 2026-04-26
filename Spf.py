@@ -443,7 +443,7 @@ class SpfNet(FusionNet):
                                                              self.__Z: test_Z,
                                                              self.__A: test_A[:, :, 0:self.k]})
                         test_pos = np.squeeze(test_pos, axis=1)
-                        test_pos = test_pos.astype(np.int)
+                        test_pos = test_pos.astype(int)
                         for j in range(X.shape[0]):
                             x, end_x, y, end_y = test_pos[j, 0], test_pos[j, 1], test_pos[j, 2], test_pos[j, 3]
                             output[x:end_x, y:end_y, :] += X[j, :, :, :]
