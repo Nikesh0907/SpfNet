@@ -160,7 +160,43 @@ class SpfNet(FusionNet):
             candidate = os.path.join(self.model_save_path, basename)
             if os.path.exists(candidate) or os.path.exists(candidate + '.index'):
                 ckpt_path = candidate
-        self.saver.restore(sess, ckpt_path)
+        print('Loading checkpoint: %s' % ckpt_path)
+
+        # --- Diagnostic: compare checkpoint vars vs graph vars ---
+        ckpt_vars = {name: shape
+                     for name, shape in tf.train.list_variables(ckpt_path)}
+        graph_vars = {v.name.rstrip(':0'): v
+                      for v in tf.global_variables()}
+
+        matched, missing_in_ckpt, missing_in_graph = [], [], []
+        for vname, var in graph_vars.items():
+            if vname in ckpt_vars:
+                matched.append(vname)
+            else:
+                missing_in_ckpt.append(vname)
+        for vname in ckpt_vars:
+            if vname not in graph_vars:
+                missing_in_graph.append(vname)
+
+        print('  Matched vars   : %d' % len(matched))
+        if missing_in_ckpt:
+            print('  Graph vars NOT in checkpoint (%d):' % len(missing_in_ckpt))
+            for v in missing_in_ckpt[:10]:
+                print('    ', v)
+        if missing_in_graph:
+            print('  Checkpoint vars NOT in graph (%d):' % len(missing_in_graph))
+            for v in missing_in_graph[:10]:
+                print('    ', v)
+
+        if missing_in_ckpt:
+            # Partial restore: only load vars that exist in checkpoint
+            print('  Doing PARTIAL restore (matched vars only)')
+            restore_vars = {vname: graph_vars[vname] for vname in matched}
+            partial_saver = tf.train.Saver(var_list=restore_vars)
+            partial_saver.restore(sess, ckpt_path)
+        else:
+            self.saver.restore(sess, ckpt_path)
+        print('Checkpoint loaded successfully.')
 
     def build_graph(self, Y, Z, A):
         out_stages = 5
