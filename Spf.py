@@ -10,7 +10,55 @@ import time
 import shutil
 import argparse
 
-from tensorflow.contrib import layers
+if hasattr(tf, 'compat') and hasattr(tf.compat, 'v1'):
+    tf.compat.v1.disable_v2_behavior()
+    tf = tf.compat.v1
+
+try:
+    from tensorflow.contrib import layers
+except Exception:
+    class _LayersCompat(object):
+        @staticmethod
+        def conv2d(inputs, num_outputs, kernel_size, stride,
+                   activation_fn=None, weights_initializer=None,
+                   weights_regularizer=None, scope=None):
+            return tf.layers.conv2d(
+                inputs=inputs,
+                filters=num_outputs,
+                kernel_size=kernel_size,
+                strides=stride,
+                padding='SAME',
+                activation=activation_fn,
+                kernel_initializer=weights_initializer,
+                kernel_regularizer=weights_regularizer,
+                name=scope
+            )
+
+        @staticmethod
+        def conv2d_transpose(inputs, num_outputs, kernel_size, stride,
+                             activation_fn=None, weights_initializer=None,
+                             weights_regularizer=None, scope=None):
+            return tf.layers.conv2d_transpose(
+                inputs=inputs,
+                filters=num_outputs,
+                kernel_size=kernel_size,
+                strides=stride,
+                padding='SAME',
+                activation=activation_fn,
+                kernel_initializer=weights_initializer,
+                kernel_regularizer=weights_regularizer,
+                name=scope
+            )
+
+        @staticmethod
+        def variance_scaling_initializer():
+            return tf.keras.initializers.VarianceScaling()
+
+        @staticmethod
+        def l2_regularizer(scale):
+            return tf.keras.regularizers.l2(scale)
+
+    layers = _LayersCompat()
 
 try:
     from SpfNet.utils import FusionNet
@@ -26,13 +74,16 @@ np.random.seed(1)
 
 
 class SpfNet(FusionNet):
-    def __init__(self, data_num, sim=True, gen_path=None, origin_data_path=None):
+    def __init__(self, data_num, sim=True, gen_path=None, origin_data_path=None, prepare_train_data=True):
         super().__init__(data_num, sim, gen_path=gen_path, origin_data_path=origin_data_path)
         # one can redefine param here
         self.k = min(self.hs_bands, 31)
         self.restart_epoch = 2
         # train and valid, SVD
-        self.train_num, self.valid_num = self.train_valid_process_piece(self.sim_save_path, block=self.block)
+        if prepare_train_data:
+            self.train_num, self.valid_num = self.train_valid_process_piece(self.sim_save_path, block=self.block)
+        else:
+            self.train_num, self.valid_num = 0, 0
         # variable, graph, loss and etc.
         self.__X = tf.placeholder(tf.float32, shape=(None, None, None, self.hs_bands), name='HRHS')
         self.__Y = tf.placeholder(tf.float32, shape=(None, None, None, self.hs_bands), name='LRHS')
@@ -47,6 +98,30 @@ class SpfNet(FusionNet):
         self.decrease_lr = self.decrease_lr_v2
         if data_num == 2 or data_num == 11:
             self.decrease_lr = self.decrease_lr_v0
+
+    def _restore_model(self, sess):
+        latest_model = tf.train.get_checkpoint_state(self.model_save_path)
+        ckpt_path = None
+        if latest_model is not None:
+            ckpt_path = latest_model.model_checkpoint_path
+        if ckpt_path is None:
+            alt_ckpt = os.path.join(self.model_save_path, 'checkpoint.txt')
+            if os.path.exists(alt_ckpt):
+                with open(alt_ckpt, 'r') as f:
+                    for line in f:
+                        if line.startswith('model_checkpoint_path'):
+                            ckpt_path = line.split(':', 1)[1].strip().strip('"')
+                            break
+        if ckpt_path is None:
+            raise ValueError('No checkpoint metadata found in %s' % self.model_save_path)
+        if not os.path.isabs(ckpt_path):
+            ckpt_path = os.path.join(self.model_save_path, ckpt_path)
+        if not os.path.exists(ckpt_path) and not os.path.exists(ckpt_path + '.index'):
+            basename = os.path.basename(ckpt_path)
+            candidate = os.path.join(self.model_save_path, basename)
+            if os.path.exists(candidate) or os.path.exists(candidate + '.index'):
+                ckpt_path = candidate
+        self.saver.restore(sess, ckpt_path)
 
     def build_graph(self, Y, Z, A):
         out_stages = 5
@@ -169,8 +244,7 @@ class SpfNet(FusionNet):
             if restart is False:
                 sess.run(tf.global_variables_initializer())
             else:
-                latest_model = tf.train.get_checkpoint_state(self.model_save_path)
-                self.saver.restore(sess, latest_model.model_checkpoint_path)
+                self._restore_model(sess)
                 self.current_epoch = 0
             count = 0
             for self.current_restart in range(self.restart_epoch):
@@ -238,8 +312,7 @@ class SpfNet(FusionNet):
     def test(self):
         run_time = 0
         with self.init_device() as sess:
-            latest_model = tf.train.get_checkpoint_state(self.model_save_path)
-            self.saver.restore(sess, latest_model.model_checkpoint_path)
+            self._restore_model(sess)
             for i in range(self.test_start, self.test_end + 1):
                 mat = sio.loadmat(self.sim_save_path + '%d.mat' % i)
                 start = time.perf_counter()
@@ -267,8 +340,7 @@ class SpfNet(FusionNet):
             stride = self.test_stride
         run_time = 0
         with self.init_device() as sess:
-            latest_model = tf.train.get_checkpoint_state(self.model_save_path)
-            self.saver.restore(sess, latest_model.model_checkpoint_path)
+            self._restore_model(sess)
             for i in range(self.test_start, self.test_end + 1):
                 mat = sio.loadmat(self.sim_save_path + '%d.mat' % i)
                 tY = mat['LRHS']
@@ -314,8 +386,7 @@ class SpfNet(FusionNet):
             self.test_process_piece(self.sim_save_path, stride)
         run_time = 0
         with self.init_device() as sess:
-            latest_model = tf.train.get_checkpoint_state(self.model_save_path)
-            self.saver.restore(sess, latest_model.model_checkpoint_path)
+            self._restore_model(sess)
             for i in range(self.test_start, self.test_end + 1):
                 mat = sio.loadmat(self.sim_save_path + '%d.mat' % i)
                 tY = mat['LRHS']
@@ -501,11 +572,19 @@ if __name__ == '__main__':
     parser.add_argument('--weights_path', type=str, default=None)
     parser.add_argument('--eval_only', action='store_true')
     parser.add_argument('--recompute', action='store_true')
+    parser.add_argument('--test_start', type=int, default=None)
+    parser.add_argument('--test_end', type=int, default=None)
     args = parser.parse_args()
 
-    net = SpfNet(args.data_num, sim=True, gen_path=args.gen_path, origin_data_path=args.origin_data_path)
+    net = SpfNet(args.data_num, sim=True, gen_path=args.gen_path,
+                 origin_data_path=args.origin_data_path,
+                 prepare_train_data=(not args.eval_only))
     if args.weights_path is not None:
         net.model_save_path = args.weights_path if args.weights_path.endswith('/') else args.weights_path + '/'
+    if args.test_start is not None:
+        net.test_start = args.test_start
+    if args.test_end is not None:
+        net.test_end = args.test_end
     net.stats_graph(tf.get_default_graph())
     if not args.eval_only:
         net.train_tf()

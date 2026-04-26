@@ -10,6 +10,10 @@ import math
 import cv2
 import platform
 
+if hasattr(tf, 'compat') and hasattr(tf.compat, 'v1'):
+    tf.compat.v1.disable_v2_behavior()
+    tf = tf.compat.v1
+
 try:
     from SpfNet.funs import _int64_features, _bytes_features
     from SpfNet.funs import gauss_kernel, check_dir, standard, join_path_list, intersect
@@ -36,7 +40,8 @@ class Param(object):
         if origin_data_path is not None:
             self.origin_data_path = origin_data_path
         if data_num == 0:  # cave data
-            self.origin_data_path = self.origin_data_path + 'CAVE/'
+            if origin_data_path is None:
+                self.origin_data_path = self.origin_data_path + 'CAVE/'
             self.mat_save_path = self.genPath + 'cave_data/'
             self.train_start, self.train_end = 1, 20
             self.test_start, self.test_end = 21, 32
@@ -101,8 +106,8 @@ class Param(object):
 
 
 class FusionNet(Param):
-    def __init__(self, data_num, sim=True):
-        super().__init__(data_num)
+    def __init__(self, data_num, sim=True, gen_path=None, origin_data_path=None):
+        super().__init__(data_num, gen_path=gen_path, origin_data_path=origin_data_path)
         if sim is True:
             self.B = gauss_kernel(self.kerSize, self.kerSize, sigma=self.sigma)
             self.R = self.create_spec_resp(data_num, self.genPath)
@@ -301,6 +306,46 @@ class FusionNet(Param):
             print('CAVE: xx exists!')
             return
         check_dir(output_path)
+
+        hsi_dir = os.path.join(input_path, 'HSI')
+        rgb_dir = os.path.join(input_path, 'RGB')
+        if os.path.isdir(hsi_dir) and os.path.isdir(rgb_dir):
+            hsi_files = sorted([name for name in os.listdir(hsi_dir) if name.lower().endswith('.mat')])
+            rgb_files = sorted([name for name in os.listdir(rgb_dir) if name.lower().endswith('.mat')])
+            if hsi_files:
+                def pick_array(mat_dict, preferred_channels=None):
+                    candidates = []
+                    for key, value in mat_dict.items():
+                        if key.startswith('__') or not isinstance(value, np.ndarray):
+                            continue
+                        if value.ndim == 3:
+                            candidates.append(value)
+                        elif value.ndim == 2:
+                            candidates.append(value[:, :, np.newaxis])
+                    if preferred_channels is not None:
+                        for value in candidates:
+                            if value.shape[2] == preferred_channels:
+                                return value
+                    if candidates:
+                        return candidates[0]
+                    return None
+
+                count = 0
+                pair_num = min(len(hsi_files), len(rgb_files))
+                for idx in range(pair_num):
+                    hs_mat = sio.loadmat(os.path.join(hsi_dir, hsi_files[idx]))
+                    rgb_mat = sio.loadmat(os.path.join(rgb_dir, rgb_files[idx]))
+                    hs = pick_array(hs_mat, preferred_channels=31)
+                    hrms = pick_array(rgb_mat, preferred_channels=3)
+                    if hs is None:
+                        raise ValueError('Could not find an HSI tensor in %s' % hsi_files[idx])
+                    if hrms is None:
+                        hrms = hs[:, :, :3] if hs.shape[2] >= 3 else np.repeat(hs, 3, axis=2)
+                    count += 1
+                    sio.savemat(output_path + str(count) + '.mat', {'HS': np.float32(hs), 'HRMS': np.float32(hrms)})
+                    print('CAVE(HSI/RGB): %d has finished' % count)
+                return
+
         mat_files = sorted([name for name in os.listdir(input_path) if name.lower().endswith('.mat')])
         if mat_files:
             grouped = {}

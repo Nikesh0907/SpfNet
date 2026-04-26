@@ -4,6 +4,10 @@ import cv2
 import os
 from skimage.measure import compare_psnr, compare_ssim
 
+if hasattr(tf, 'compat') and hasattr(tf.compat, 'v1'):
+    tf.compat.v1.disable_v2_behavior()
+    tf = tf.compat.v1
+
 
 def _bytes_features(value):
     return tf.train.Feature(bytes_list=tf.train.BytesList(value=value))
