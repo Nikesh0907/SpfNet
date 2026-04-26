@@ -18,37 +18,55 @@ try:
     from tensorflow.contrib import layers
 except Exception:
     class _LayersCompat(object):
-        @staticmethod
+        _layer_cache = {}
+
+        @classmethod
+        def _layer_name(cls, op_name, scope):
+            scope_name = tf.get_variable_scope().name
+            full_scope = scope_name + '/' + scope if scope_name else scope
+            full_scope = full_scope if full_scope is not None else op_name
+            return full_scope.replace('/', '_')
+
+        @classmethod
+        def _cache_key(cls, op_name, scope, num_outputs, kernel_size, stride):
+            scope_name = tf.get_variable_scope().name
+            return (op_name, scope_name, scope, num_outputs, kernel_size, stride)
+
+        @classmethod
         def conv2d(inputs, num_outputs, kernel_size, stride,
                    activation_fn=None, weights_initializer=None,
                    weights_regularizer=None, scope=None):
-            return tf.layers.conv2d(
-                inputs=inputs,
-                filters=num_outputs,
-                kernel_size=kernel_size,
-                strides=stride,
-                padding='SAME',
-                activation=activation_fn,
-                kernel_initializer=weights_initializer,
-                kernel_regularizer=weights_regularizer,
-                name=scope
-            )
+            key = cls._cache_key('conv2d', scope, num_outputs, kernel_size, stride)
+            if key not in cls._layer_cache:
+                cls._layer_cache[key] = tf.keras.layers.Conv2D(
+                    filters=num_outputs,
+                    kernel_size=kernel_size,
+                    strides=stride,
+                    padding='same',
+                    activation=activation_fn,
+                    kernel_initializer=weights_initializer,
+                    kernel_regularizer=weights_regularizer,
+                    name=cls._layer_name('conv2d', scope)
+                )
+            return cls._layer_cache[key](inputs)
 
-        @staticmethod
+        @classmethod
         def conv2d_transpose(inputs, num_outputs, kernel_size, stride,
                              activation_fn=None, weights_initializer=None,
                              weights_regularizer=None, scope=None):
-            return tf.layers.conv2d_transpose(
-                inputs=inputs,
-                filters=num_outputs,
-                kernel_size=kernel_size,
-                strides=stride,
-                padding='SAME',
-                activation=activation_fn,
-                kernel_initializer=weights_initializer,
-                kernel_regularizer=weights_regularizer,
-                name=scope
-            )
+            key = cls._cache_key('conv2d_transpose', scope, num_outputs, kernel_size, stride)
+            if key not in cls._layer_cache:
+                cls._layer_cache[key] = tf.keras.layers.Conv2DTranspose(
+                    filters=num_outputs,
+                    kernel_size=kernel_size,
+                    strides=stride,
+                    padding='same',
+                    activation=activation_fn,
+                    kernel_initializer=weights_initializer,
+                    kernel_regularizer=weights_regularizer,
+                    name=cls._layer_name('conv2d_transpose', scope)
+                )
+            return cls._layer_cache[key](inputs)
 
         @staticmethod
         def variance_scaling_initializer():
