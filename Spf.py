@@ -33,7 +33,7 @@ except Exception:
             return (op_name, scope_name, scope, num_outputs, kernel_size, stride)
 
         @classmethod
-        def conv2d(inputs, num_outputs, kernel_size, stride,
+        def conv2d(cls, inputs, num_outputs, kernel_size, stride,
                    activation_fn=None, weights_initializer=None,
                    weights_regularizer=None, scope=None):
             key = cls._cache_key('conv2d', scope, num_outputs, kernel_size, stride)
@@ -51,7 +51,7 @@ except Exception:
             return cls._layer_cache[key](inputs)
 
         @classmethod
-        def conv2d_transpose(inputs, num_outputs, kernel_size, stride,
+        def conv2d_transpose(cls, inputs, num_outputs, kernel_size, stride,
                              activation_fn=None, weights_initializer=None,
                              weights_regularizer=None, scope=None):
             key = cls._cache_key('conv2d_transpose', scope, num_outputs, kernel_size, stride)
