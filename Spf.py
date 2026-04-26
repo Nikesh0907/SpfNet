@@ -17,48 +17,74 @@ if hasattr(tf, 'compat') and hasattr(tf.compat, 'v1'):
 try:
     from tensorflow.contrib import layers
 except Exception:
+    import math as _math
+
+    def _get_or_create_var(name, shape, initializer, regularizer):
+        """Create or reuse a tf.Variable in the current variable scope."""
+        return tf.get_variable(name, shape=shape,
+                               initializer=initializer,
+                               regularizer=regularizer)
+
     class _LayersCompat(object):
         @classmethod
         def conv2d(cls, inputs, num_outputs, kernel_size, stride,
                    activation_fn=None, weights_initializer=None,
                    weights_regularizer=None, scope=None):
-            return tf.compat.v1.layers.conv2d(
-                inputs,
-                filters=num_outputs,
-                kernel_size=kernel_size,
-                strides=stride,
-                padding='same',
-                activation=activation_fn,
-                kernel_initializer=weights_initializer,
-                kernel_regularizer=weights_regularizer,
-                name=scope,
-                reuse=tf.compat.v1.AUTO_REUSE
-            )
+            in_channels = inputs.get_shape().as_list()[-1]
+            if weights_initializer is None:
+                weights_initializer = tf.glorot_uniform_initializer()
+            with tf.variable_scope(scope or 'conv2d', reuse=tf.AUTO_REUSE):
+                W = _get_or_create_var(
+                    'weights',
+                    [kernel_size, kernel_size, in_channels, num_outputs],
+                    weights_initializer, weights_regularizer)
+                b = _get_or_create_var(
+                    'biases', [num_outputs],
+                    tf.zeros_initializer(), None)
+            out = tf.nn.conv2d(inputs, W,
+                               strides=[1, stride, stride, 1],
+                               padding='SAME')
+            out = tf.nn.bias_add(out, b)
+            if activation_fn is not None:
+                out = activation_fn(out)
+            return out
 
         @classmethod
         def conv2d_transpose(cls, inputs, num_outputs, kernel_size, stride,
                              activation_fn=None, weights_initializer=None,
                              weights_regularizer=None, scope=None):
-            return tf.compat.v1.layers.conv2d_transpose(
-                inputs,
-                filters=num_outputs,
-                kernel_size=kernel_size,
-                strides=stride,
-                padding='same',
-                activation=activation_fn,
-                kernel_initializer=weights_initializer,
-                kernel_regularizer=weights_regularizer,
-                name=scope,
-                reuse=tf.compat.v1.AUTO_REUSE
-            )
+            in_channels = inputs.get_shape().as_list()[-1]
+            if weights_initializer is None:
+                weights_initializer = tf.glorot_uniform_initializer()
+            with tf.variable_scope(scope or 'conv2d_transpose', reuse=tf.AUTO_REUSE):
+                W = _get_or_create_var(
+                    'weights',
+                    [kernel_size, kernel_size, num_outputs, in_channels],
+                    weights_initializer, weights_regularizer)
+                b = _get_or_create_var(
+                    'biases', [num_outputs],
+                    tf.zeros_initializer(), None)
+            # Compute dynamic output shape: [N, H*stride, W*stride, num_outputs]
+            input_shape = tf.shape(inputs)
+            batch  = input_shape[0]
+            height = input_shape[1]
+            width  = input_shape[2]
+            out_shape = tf.stack([batch, height * stride, width * stride, num_outputs])
+            out = tf.nn.conv2d_transpose(inputs, W, output_shape=out_shape,
+                                         strides=[1, stride, stride, 1],
+                                         padding='SAME')
+            out = tf.nn.bias_add(out, b)
+            if activation_fn is not None:
+                out = activation_fn(out)
+            return out
 
         @staticmethod
         def variance_scaling_initializer():
-            return tf.compat.v1.keras.initializers.VarianceScaling()
+            return tf.glorot_uniform_initializer()
 
         @staticmethod
         def l2_regularizer(scale):
-            return tf.compat.v1.keras.regularizers.l2(scale)
+            return tf.keras.regularizers.l2(scale)
 
     layers = _LayersCompat()
 
