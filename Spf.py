@@ -165,8 +165,7 @@ class SpfNet(FusionNet):
         # --- Diagnostic: compare checkpoint vars vs graph vars ---
         ckpt_vars = {name: shape
                      for name, shape in tf.train.list_variables(ckpt_path)}
-        graph_vars = {v.name.rstrip(':0'): v
-                      for v in tf.global_variables()}
+        graph_vars = {v.op.name: v for v in tf.global_variables()}
 
         matched, missing_in_ckpt, missing_in_graph = [], [], []
         for vname, var in graph_vars.items():
