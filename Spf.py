@@ -20,10 +20,16 @@ except Exception:
     import math as _math
 
     def _get_or_create_var(name, shape, initializer, regularizer):
-        """Create or reuse a tf.Variable in the current variable scope."""
-        return tf.get_variable(name, shape=shape,
-                               initializer=initializer,
-                               regularizer=regularizer)
+        """Create or reuse a tf.Variable in the current variable scope.
+        Avoids passing Keras 3 regularizer objects to tf.get_variable by
+        manually adding the regularization loss to the graph collection.
+        """
+        v = tf.get_variable(name, shape=shape, initializer=initializer)
+        if regularizer is not None:
+            reg_loss = regularizer(v)
+            if reg_loss is not None:
+                tf.add_to_collection(tf.GraphKeys.REGULARIZATION_LOSSES, reg_loss)
+        return v
 
     class _LayersCompat(object):
         @classmethod
@@ -84,7 +90,12 @@ except Exception:
 
         @staticmethod
         def l2_regularizer(scale):
-            return tf.keras.regularizers.l2(scale)
+            # Return a plain Python callable that only uses tf.nn.l2_loss,
+            # so it works on float32_ref variables without touching Keras 3 ops.
+            def _reg(weights):
+                return tf.multiply(scale, tf.nn.l2_loss(weights),
+                                   name='l2_regularization')
+            return _reg
 
     layers = _LayersCompat()
 
