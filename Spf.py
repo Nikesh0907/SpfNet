@@ -498,11 +498,14 @@ if __name__ == '__main__':
     parser.add_argument('--data_num', type=int, default=0)
     parser.add_argument('--gen_path', type=str, default=None)
     parser.add_argument('--origin_data_path', type=str, default=None)
+    parser.add_argument('--weights_path', type=str, default=None)
     parser.add_argument('--eval_only', action='store_true')
     parser.add_argument('--recompute', action='store_true')
     args = parser.parse_args()
 
     net = SpfNet(args.data_num, sim=True, gen_path=args.gen_path, origin_data_path=args.origin_data_path)
+    if args.weights_path is not None:
+        net.model_save_path = args.weights_path if args.weights_path.endswith('/') else args.weights_path + '/'
     net.stats_graph(tf.get_default_graph())
     if not args.eval_only:
         net.train_tf()

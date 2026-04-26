@@ -108,7 +108,10 @@ class FusionNet(Param):
             self.R = self.create_spec_resp(data_num, self.genPath)
             if not os.path.exists(self.sim_save_path + 'info.mat'):
                 check_dir(self.sim_save_path)
-                sio.savemat(self.sim_save_path + 'info.mat', {'B': self.B, 'R': self.R})
+                info = {'B': self.B}
+                if self.R is not None:
+                    info['R'] = self.R
+                sio.savemat(self.sim_save_path + 'info.mat', info)
             self.read_original_data(data_num, self.origin_data_path, self.mat_save_path)  # HS
             self.hs_bands, self.ms_bands = self.create_simulate_data(self.mat_save_path, self.sim_save_path,
                                                                      self.B, self.R, self.ratio,
@@ -298,6 +301,59 @@ class FusionNet(Param):
             print('CAVE: xx exists!')
             return
         check_dir(output_path)
+        mat_files = sorted([name for name in os.listdir(input_path) if name.lower().endswith('.mat')])
+        if mat_files:
+            grouped = {}
+            for file_name in mat_files:
+                lower_name = file_name.lower()
+                scene_name = os.path.splitext(lower_name)[0]
+                for suffix in ['_hsi', '_hs', '_rgb', '_ms', '_msi', '_ref', '_gt', '-hsi', '-hs', '-rgb', '-ms', '-msi', '-ref', '-gt']:
+                    if scene_name.endswith(suffix):
+                        scene_name = scene_name[:-len(suffix)]
+                        break
+                grouped.setdefault(scene_name, []).append(file_name)
+
+            def pick_array(mat_dict, preferred_channels=None):
+                candidates = []
+                for key, value in mat_dict.items():
+                    if key.startswith('__') or not isinstance(value, np.ndarray):
+                        continue
+                    if value.ndim == 3:
+                        candidates.append(value)
+                    elif value.ndim == 2:
+                        candidates.append(value[:, :, np.newaxis])
+                if preferred_channels is not None:
+                    for value in candidates:
+                        if value.shape[2] == preferred_channels:
+                            return value
+                if candidates:
+                    return candidates[0]
+                return None
+
+            count = 0
+            for scene_name in sorted(grouped.keys()):
+                hs = None
+                hrms = None
+                for file_name in grouped[scene_name]:
+                    mat = sio.loadmat(input_path + file_name)
+                    file_lower = file_name.lower()
+                    if 'rgb' in file_lower or 'ms' in file_lower:
+                        array = pick_array(mat, preferred_channels=3)
+                        if array is not None:
+                            hrms = array if hrms is None else hrms
+                    else:
+                        array = pick_array(mat, preferred_channels=31)
+                        if array is not None:
+                            hs = array if hs is None else hs
+                if hs is None:
+                    raise ValueError('Could not find an HSI array in MAT files under %s' % input_path)
+                if hrms is None:
+                    hrms = hs[:, :, :3] if hs.shape[2] >= 3 else np.repeat(hs, 3, axis=2)
+                count += 1
+                sio.savemat(output_path + str(count) + '.mat', {'HS': np.float32(hs), 'HRMS': np.float32(hrms)})
+                print('CAVE(mat): %d has finished' % count)
+            return
+
         rows, cols, bands = 512, 512, 31
         hsi = np.zeros([rows, cols, bands], dtype=np.float32)
         count = 0
@@ -337,6 +393,8 @@ class FusionNet(Param):
     def create_spec_resp(data_num, genPath):
         if data_num == 0:
             file = genPath + 'srf/D700.mat'  # 377-948
+            if not os.path.exists(file):
+                return None
             mat = sio.loadmat(file)
             spec_rng = np.arange(400, 700 + 1, 10)
             spec_resp = mat['spec_resp']
@@ -381,10 +439,25 @@ class FusionNet(Param):
             if os.path.isfile(input_path + dir_name):
                 mat = sio.loadmat(input_path + dir_name)
                 hs = mat['HS']
+                hrms = mat.get('HRMS')
+                if hrms is None:
+                    hrms = mat.get('RGB')
+                if hrms is None:
+                    hrms = mat.get('MS')
+                if hrms is None:
+                    hrms = mat.get('MSI')
                 # control size of image according to ratio
                 hs = hs[0: hs.shape[0] // ratio * ratio, 0: hs.shape[1] // ratio * ratio, :]
                 mat['HS'] = hs
-                ms = tl.tenalg.mode_dot(hs, R, mode=2)
+                if hrms is not None:
+                    ms = np.float32(hrms)
+                    if ms.ndim == 2:
+                        ms = ms[:, :, np.newaxis]
+                    ms = ms[0:hs.shape[0], 0:hs.shape[1], :]
+                else:
+                    if R is None:
+                        raise ValueError('No HRMS/RGB data and no spectral response file available for %s' % dir_name)
+                    ms = tl.tenalg.mode_dot(hs, R, mode=2)
                 # add noise for ms
                 ms_sig = (np.sum(np.power(ms.flatten(), 2)) / (10 ** (ms_snr / 10)) / ms.size) ** 0.5
                 np.random.seed(1)
