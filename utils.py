@@ -593,13 +593,13 @@ class FusionNet(Param):
         if norm == 'l1':
             # L1-norm as the spatial loss
             loss += tf.reduce_mean(tf.abs(label - output), name='mse')
-        if l2_decay is 'loss':
+        if l2_decay == 'loss':
             # weight_decay to suppress the weights
             weight_list = tf.get_collection('loss')
             l2_norm_losses = [tf.nn.l2_loss(w) for w in weight_list]
             l2_norm_loss = self.l2_decay * tf.add_n(l2_norm_losses)
             loss += l2_norm_loss
-        if l2_decay is 'layer':
+        if l2_decay == 'layer':
             l2_norm_losses = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
             l2_norm_loss = tf.add_n(l2_norm_losses)
             loss += l2_norm_loss

@@ -2,7 +2,10 @@ import numpy as np
 import tensorflow as tf
 import cv2
 import os
-from skimage.measure import compare_psnr, compare_ssim
+try:
+    from skimage.measure import compare_ssim
+except ImportError:
+    from skimage.metrics import structural_similarity as compare_ssim
 
 if hasattr(tf, 'compat') and hasattr(tf.compat, 'v1'):
     tf.compat.v1.disable_v2_behavior()
