@@ -10,13 +10,18 @@ import math
 import cv2
 import platform
 
-from SpfNet.funs import _int64_features, _bytes_features
-from SpfNet.funs import gauss_kernel, check_dir, standard, join_path_list, intersect
-from SpfNet.funs import quality_assessment
+try:
+    from SpfNet.funs import _int64_features, _bytes_features
+    from SpfNet.funs import gauss_kernel, check_dir, standard, join_path_list, intersect
+    from SpfNet.funs import quality_assessment
+except ImportError:
+    from funs import _int64_features, _bytes_features
+    from funs import gauss_kernel, check_dir, standard, join_path_list, intersect
+    from funs import quality_assessment
 
 
 class Param(object):
-    def __init__(self, data_num):
+    def __init__(self, data_num, gen_path=None, origin_data_path=None):
         sysstr = platform.system()
         if sysstr == 'Windows':
             self.genPath = 'D:/PyCode/PySCI/SpfNet/'
@@ -26,6 +31,10 @@ class Param(object):
         if sysstr == 'Linux':
             self.genPath = '/home/amax/PycharmProjects/???/'
             self.origin_data_path = '/home/amax/PycharmProjects/???/'
+        if gen_path is not None:
+            self.genPath = gen_path
+        if origin_data_path is not None:
+            self.origin_data_path = origin_data_path
         if data_num == 0:  # cave data
             self.origin_data_path = self.origin_data_path + 'CAVE/'
             self.mat_save_path = self.genPath + 'cave_data/'

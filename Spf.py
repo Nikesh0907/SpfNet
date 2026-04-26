@@ -8,11 +8,16 @@ import os
 import scipy
 import time
 import shutil
+import argparse
 
 from tensorflow.contrib import layers
 
-from SpfNet.utils import FusionNet
-from SpfNet.funs import check_dir
+try:
+    from SpfNet.utils import FusionNet
+    from SpfNet.funs import check_dir
+except ImportError:
+    from utils import FusionNet
+    from funs import check_dir
 
 
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
@@ -21,8 +26,8 @@ np.random.seed(1)
 
 
 class SpfNet(FusionNet):
-    def __init__(self, data_num, sim=True):
-        super().__init__(data_num, sim)
+    def __init__(self, data_num, sim=True, gen_path=None, origin_data_path=None):
+        super().__init__(data_num, sim, gen_path=gen_path, origin_data_path=origin_data_path)
         # one can redefine param here
         self.k = min(self.hs_bands, 31)
         self.restart_epoch = 2
@@ -489,12 +494,17 @@ class SpfNet(FusionNet):
 
 
 if __name__ == '__main__':
-    data_num = 0
-    net = SpfNet(data_num, sim=True)
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--data_num', type=int, default=0)
+    parser.add_argument('--gen_path', type=str, default=None)
+    parser.add_argument('--origin_data_path', type=str, default=None)
+    parser.add_argument('--eval_only', action='store_true')
+    parser.add_argument('--recompute', action='store_true')
+    args = parser.parse_args()
+
+    net = SpfNet(args.data_num, sim=True, gen_path=args.gen_path, origin_data_path=args.origin_data_path)
     net.stats_graph(tf.get_default_graph())
-    net.train_tf()
-    # net.test()
-    # net.test_piece()
-    net.test_piece_tf()
-    net.show_final_result()
-    # net.show_final_result(recompute=False)
+    if not args.eval_only:
+        net.train_tf()
+    net.test_piece_tf(recompute=args.recompute)
+    net.show_final_result(recompute=args.recompute)
