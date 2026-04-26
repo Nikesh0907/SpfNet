@@ -313,13 +313,19 @@ class SpfNet(FusionNet):
             return tf.add(output, input_tensor)
 
     # training using tfrecords files
-    def train_tf(self, restart=False):
+    def train_tf(self, restart=False, resume=False):
         with self.init_device() as sess:
-            if restart is False:
-                sess.run(tf.global_variables_initializer())
-            else:
+            if resume:
+                # Continue from existing checkpoint, keep epoch counter
+                print('Resuming training from checkpoint: %s' % self.model_save_path)
+                self._restore_model(sess)
+            elif restart:
+                # Reload checkpoint but reset epoch counter
                 self._restore_model(sess)
                 self.current_epoch = 0
+            else:
+                # Fresh start
+                sess.run(tf.global_variables_initializer())
             count = 0
             for self.current_restart in range(self.restart_epoch):
                 _opt = self.train_op
@@ -338,7 +344,8 @@ class SpfNet(FusionNet):
                         count += train_X.shape[0]
                         if count // self.train_num > self.current_epoch:
                             end = time.perf_counter()
-                            print('training', end - start)
+                            print('training epoch %d, time=%.1fs, loss=%.4f, lr=%.2e'
+                                  % (self.current_epoch, end - start, loss, self.lr))
                             start1 = time.perf_counter()
                             self.current_epoch += 1
                             valid_ls = self.valid_tf(sess)
@@ -347,7 +354,7 @@ class SpfNet(FusionNet):
                             print('validation', end1 - start1)
                             start = time.perf_counter()
                 except tf.errors.OutOfRangeError:
-                    print("Finish train_tf")
+                    print('Finish train_tf')
             pass
 
     # validation using tfrecords files
@@ -644,23 +651,51 @@ if __name__ == '__main__':
     parser.add_argument('--gen_path', type=str, default=None)
     parser.add_argument('--origin_data_path', type=str, default=None)
     parser.add_argument('--weights_path', type=str, default=None)
+    # ---- training flags ----
+    parser.add_argument('--train_only', action='store_true',
+                        help='Run training only, skip evaluation')
+    parser.add_argument('--resume', action='store_true',
+                        help='Resume training from an existing checkpoint')
+    parser.add_argument('--train_start', type=int, default=None,
+                        help='First training image index (default from data_num config)')
+    parser.add_argument('--train_end', type=int, default=None,
+                        help='Last training image index (default from data_num config)')
+    parser.add_argument('--total_epoch', type=int, default=None,
+                        help='Total epochs per restart (default 100)')
+    # ---- eval flags ----
     parser.add_argument('--eval_only', action='store_true')
     parser.add_argument('--recompute', action='store_true')
     parser.add_argument('--test_start', type=int, default=None)
     parser.add_argument('--test_end', type=int, default=None)
     args = parser.parse_args()
 
+    do_train = not args.eval_only
+    do_eval  = not args.train_only
+
     net = SpfNet(args.data_num, sim=True, gen_path=args.gen_path,
                  origin_data_path=args.origin_data_path,
-                 prepare_train_data=(not args.eval_only))
+                 prepare_train_data=do_train)
+
+    # Override paths / ranges
     if args.weights_path is not None:
-        net.model_save_path = args.weights_path if args.weights_path.endswith('/') else args.weights_path + '/'
+        net.model_save_path = (args.weights_path
+                               if args.weights_path.endswith('/')
+                               else args.weights_path + '/')
+    if args.train_start is not None:
+        net.train_start = args.train_start
+    if args.train_end is not None:
+        net.train_end   = args.train_end
     if args.test_start is not None:
-        net.test_start = args.test_start
+        net.test_start  = args.test_start
     if args.test_end is not None:
-        net.test_end = args.test_end
+        net.test_end    = args.test_end
+    if args.total_epoch is not None:
+        net.total_epoch = args.total_epoch
+
     net.stats_graph(tf.get_default_graph())
-    if not args.eval_only:
-        net.train_tf()
-    net.test_piece_tf(recompute=args.recompute)
-    net.show_final_result(recompute=args.recompute)
+
+    if do_train:
+        net.train_tf(resume=args.resume)
+    if do_eval:
+        net.test_piece_tf(recompute=args.recompute)
+        net.show_final_result(recompute=args.recompute)
